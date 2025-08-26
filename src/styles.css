@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  }
+}
+/* Body styles are provided by Tailwind preflight; rely on utilities for font and colors */
+
+/* Screen reader only */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* Lexical theme classes mapped to Tailwind */
+.editor-paragraph { @apply mb-2; }
+.editor-quote { @apply my-3 pl-4 border-l-2 border-gray-200 text-gray-600; }
+
+/* Code block container - layout styles only for container */
+.editor-code {
+  @apply block bg-gray-50 border border-gray-200 rounded-md my-4 overflow-x-auto;
+  padding: 1rem 1.25rem;
+}
+
+/* Typography styles - defensive against global CSS conflicts using higher specificity */
+.editor-code,
+.editor-code *,
+.editor-code pre,
+.editor-code code {
+  white-space: pre !important;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Cascadia Code', 'Roboto Mono', monospace !important;
+  font-size: 0.875rem !important;
+  line-height: 1.5 !important;
+  color: #1f2937 !important;
+  font-weight: normal !important;
+}
+
+.editor-h1 { @apply text-3xl font-bold my-4; }
+.editor-h2 { @apply text-2xl font-semibold my-3; }
+.editor-h3 { @apply text-xl font-semibold my-2; }
+.editor-ul { @apply list-disc pl-5 my-2; }
+.editor-ol { @apply list-decimal pl-5 my-2; }
+.editor-listitem { @apply my-1; }
+.editor-nested-listitem { @apply list-disc; }
+
+/* Inline text formatting */
+.editor-text-bold { @apply font-semibold; }
+.editor-text-italic { @apply italic; }
+.editor-text-code { @apply bg-gray-100 text-gray-800 px-1 py-0.5 rounded text-sm; }
