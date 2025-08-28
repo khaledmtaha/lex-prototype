@@ -43,6 +43,7 @@ export default function App() {
   }
 
   const titleClasses = [
+    'page-title', // Add page-title class for hover behavior
     isEditingTitle ? 'editing' : '',
     documentTitle === 'New Page' || documentTitle === '' ? 'empty' : ''
   ].filter(Boolean).join(' ')

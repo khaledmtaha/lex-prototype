@@ -6,7 +6,7 @@ import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin'
 import { ListPlugin } from '@lexical/react/LexicalListPlugin'
 import { ContentEditable } from '@lexical/react/LexicalContentEditable'
 import { ParagraphNode, TextNode } from 'lexical'
-import { HeadingNode, QuoteNode } from '@lexical/rich-text'
+import { QuoteNode } from '@lexical/rich-text'
 import { ListNode, ListItemNode } from '@lexical/list'
 import { CodeNode } from '@lexical/code'
 import { 
@@ -15,7 +15,6 @@ import {
   $createTextNode 
 } from 'lexical'
 import { 
-  $createHeadingNode, 
   $createQuoteNode 
 } from '@lexical/rich-text'
 import { 
@@ -23,20 +22,15 @@ import {
   $createListItemNode 
 } from '@lexical/list'
 import { $createCodeNode } from '@lexical/code'
-import theme from './theme'
+import { HeadingNode, $createHeadingNode } from '@lexical/rich-text'
+import { editorConfig } from './config/editor-config'
 import Toolbar from './plugins/Toolbar'
 import FloatingToolbar from './plugins/FloatingToolbar'
+import { HeadingPolicyPlugin } from './plugins/HeadingPolicyPlugin'
+import { HeadingShortcutsPlugin } from './plugins/HeadingShortcutsPlugin'
 import { patchLexicalWarnings } from './lexicalPatches'
 
-const nodes = [
-  ParagraphNode,
-  TextNode,
-  HeadingNode,
-  QuoteNode,
-  ListNode,
-  ListItemNode,
-  CodeNode,
-]
+// Note: Using editorConfig for node registration to ensure CustomHeadingNode is used
 
 // Function to create example content with all formatting
 function prepopulateEditorState(editor: any) {
@@ -109,11 +103,10 @@ function prepopulateEditorState(editor: any) {
   })
 }
 
-const initialConfig = { 
-  namespace: 'flow', 
-  theme, 
-  onError: console.error, 
-  nodes,
+// Use our custom editor config with restricted heading levels
+const initialConfig = {
+  ...editorConfig,
+  namespace: 'flow', // Keep existing namespace
   editorState: null
 }
 
@@ -133,6 +126,8 @@ export default function Editor() {
       </div>
       <HistoryPlugin />
       <ListPlugin />
+      <HeadingPolicyPlugin />
+      <HeadingShortcutsPlugin />
       <FloatingToolbar />
       <ExampleContentPlugin />
     </LexicalComposer>

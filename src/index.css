@@ -62,7 +62,8 @@ body {
 }
 
 /* Typography */
-h1 {
+/* Scope title styles to page title only */
+.page-title {
   font-size: 40px;
   font-weight: 700;
   color: rgb(29, 29, 31);
@@ -75,20 +76,29 @@ h1 {
   opacity: 1;
 }
 
-h1:hover {
+/* Scope title hover to page titles only */
+.page-title:hover {
   opacity: 0.6;
   cursor: pointer;
 }
 
-h1.editing {
+/* Ensure editor headings have proper cursor */
+.editor-wrapper h1:hover,
+.editor-wrapper h2:hover,
+.editor-wrapper h3:hover {
+  opacity: 1;
   cursor: text;
 }
 
-h1.empty {
+.page-title.editing {
+  cursor: text;
+}
+
+.page-title.empty {
   opacity: 0.3;
 }
 
-h1.empty::before {
+.page-title.empty::before {
   content: "New Page";
   color: rgb(29, 29, 31);
 }

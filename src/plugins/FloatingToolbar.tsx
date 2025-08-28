@@ -13,11 +13,13 @@ import {
   $isListNode,
 } from '@lexical/list'
 import {
-  $createHeadingNode,
   $createQuoteNode,
-  $isHeadingNode,
   $isQuoteNode,
 } from '@lexical/rich-text'
+import { $createHeadingNode, $isHeadingNode } from '@lexical/rich-text'
+// Note: useLexicalIsEditable not available in current version
+import { isAllowedHeadingTag } from '../constants/heading-policy'
+import { formatHeading } from '../commands/heading-commands'
 import { $setBlocksType } from '@lexical/selection'
 import { $createParagraphNode } from 'lexical'
 import { $createCodeNode, $isCodeNode } from '@lexical/code'
@@ -35,11 +37,13 @@ const DropdownChevronIcon = () => (
   </svg>
 )
 
-type BlockType = 'paragraph' | 'h2' | 'quote' | 'code' | 'bullet'
+type BlockType = 'paragraph' | 'h1' | 'h2' | 'h3' | 'quote' | 'code' | 'bullet'
 
 const BLOCKS: {label: string; type: BlockType}[] = [
   {label: 'Paragraph', type: 'paragraph'},
+  {label: 'Heading 1', type: 'h1'},
   {label: 'Heading 2', type: 'h2'},
+  {label: 'Heading 3', type: 'h3'},
   {label: 'Quote', type: 'quote'},
   {label: 'Code Block', type: 'code'},
   {label: 'Bullet List', type: 'bullet'},
@@ -58,19 +62,27 @@ export default function FloatingToolbar() {
   const [blockType, setBlockType] = useState<BlockType>('paragraph')
   const [position, setPosition] = useState({ top: 0, left: 0 })
   
-  // Handle block type changes
+  // Handle block type changes with unified command usage
   const handleBlockTypeChange = (type: BlockType) => {
+    // Check if editor is editable
+    if (!editor.isEditable()) return
+    
+    // Use formatHeading for all heading and paragraph changes
+    if (type === 'paragraph' || ['h1', 'h2', 'h3'].includes(type)) {
+      const success = formatHeading(editor, type, { enableToggle: true })
+      if (!success && import.meta.env.DEV) {
+        console.warn(`[FloatingToolbar] Failed to change block type to ${type}`)
+      }
+      editor.focus()
+      return
+    }
+    
+    // Handle other block types directly
     editor.update(() => {
       const selection = $getSelection()
       if (!$isRangeSelection(selection)) return
       
       switch (type) {
-        case 'paragraph':
-          $setBlocksType(selection, () => $createParagraphNode())
-          break
-        case 'h2':
-          $setBlocksType(selection, () => $createHeadingNode('h2'))
-          break
         case 'quote':
           $setBlocksType(selection, () => $createQuoteNode())
           break
@@ -90,7 +102,6 @@ export default function FloatingToolbar() {
       }
     })
     
-    // Keep focus in editor
     editor.focus()
   }
   
@@ -114,8 +125,13 @@ export default function FloatingToolbar() {
         
         if ($isCodeNode(element)) {
           setBlockType('code')
-        } else if ($isHeadingNode(element) && element.getTag() === 'h2') {
-          setBlockType('h2')
+        } else if ($isHeadingNode(element)) {
+          const tag = element.getTag()
+          if (isAllowedHeadingTag(tag)) {
+            setBlockType(tag)
+          } else {
+            setBlockType('paragraph') // Fallback for h4-h6 (shouldn't happen due to policy)
+          }
         } else if ($isQuoteNode(element)) {
           setBlockType('quote')
         } else if ($isListNode(element) && element.getListType() === 'bullet') {
