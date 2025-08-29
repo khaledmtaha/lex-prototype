@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEditor, LexicalEditor, $getRoot, $createParagraphNode, $createTextNode } from 'lexical';
+import { createEditor, LexicalEditor, $getRoot, $createParagraphNode, $createTextNode, $isTextNode, $isElementNode, $isParagraphNode } from 'lexical';
 import { HeadingNode } from '@lexical/rich-text';
-import { ListNode, ListItemNode, $createListNode, $createListItemNode } from '@lexical/list';
-import { CodeNode } from '@lexical/code';
+import { ListNode, ListItemNode, $createListNode, $createListItemNode, $isListItemNode } from '@lexical/list';
+import { CodeNode, $isCodeNode } from '@lexical/code';
 import { stripListPrefix } from '../utils/list-normalization';
 
 describe('Production Edge Cases', () => {
@@ -13,6 +13,60 @@ describe('Production Edge Cases', () => {
       namespace: 'production-edge-test',
       nodes: [HeadingNode, ListNode, ListItemNode, CodeNode],
       onError: console.error
+    });
+    
+    // Register the ListItemNormalization transform manually for testing
+    function findFirstTextNodeWithPrefix(nodeToSearch: any): any | null {
+      const children = nodeToSearch.getChildren();
+      
+      for (const child of children) {
+        if ($isTextNode(child)) {
+          const text = child.getTextContent();
+          if (text.trim().length > 0) {
+            const normalizedText = text.replace(/\u00a0/g, ' ');
+            const hasPrefix = /^([-*•◦▪–—]|\d+[.)]|[a-zA-Z][.)])\s+/.test(normalizedText);
+            if (hasPrefix) {
+              return child;
+            }
+          }
+          continue;
+        }
+        
+        if ($isElementNode(child) && child.isInline()) {
+          const found = findFirstTextNodeWithPrefix(child);
+          if (found) return found;
+        }
+        
+        if ($isParagraphNode(child)) {
+          const found = findFirstTextNodeWithPrefix(child);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+    
+    // Register the transform
+    editor.registerNodeTransform(ListItemNode, (node: any) => {
+      if (!editor.isEditable()) return;
+      
+      const textNode = findFirstTextNodeWithPrefix(node);
+      if (!textNode) return;
+      
+      // Skip code contexts
+      let parent = textNode.getParent();
+      while (parent) {
+        if ($isCodeNode(parent)) return;
+        if (parent.getType() === 'code') return;
+        parent = parent.getParent();
+      }
+      
+      const text = textNode.getTextContent();
+      const normalizedText = text.replace(/\u00a0/g, ' ');
+      const cleanedText = normalizedText.replace(/^([-*•◦▪–—]|\d+[.)]|[a-zA-Z][.)])\s+/, '');
+      
+      if (text !== cleanedText) {
+        textNode.setTextContent(cleanedText);
+      }
     });
   });
 

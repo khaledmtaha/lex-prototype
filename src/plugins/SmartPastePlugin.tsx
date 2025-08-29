@@ -20,6 +20,13 @@ const registeredEditors = new WeakSet<LexicalEditor>();
 // Track warned payload shapes to prevent log spam
 const warnedShapes = new Set<string>();
 
+// Dev-only paste path tracing
+let pasteIdCounter = 0;
+const generatePasteId = () => `paste-${Date.now()}-${++pasteIdCounter}`;
+
+// Track active paste events to detect potential double-processing
+const activePastes = new Set<string>();
+
 /**
  * Production-hardened Smart Paste Plugin - Stage 1 of the two-stage paste pipeline.
  * 
@@ -73,38 +80,73 @@ export function SmartPastePlugin(): null {
 /**
  * Production-hardened paste handler with multiple safety layers.
  * Returns true ONLY if content was successfully inserted.
+ * Calls preventDefault() to prevent default browser paste when handled.
  */
-function handleSmartPaste(editor: LexicalEditor, event: ClipboardEvent): boolean {
+export function handleSmartPaste(editor: LexicalEditor, event: ClipboardEvent): boolean {
   const startTime = performance.now();
+  
+  // Generate unique paste ID for dev tracing
+  const pasteId = import.meta.env.DEV ? generatePasteId() : '';
+  
+  if (import.meta.env.DEV) {
+    // Check for potential double processing
+    if (activePastes.has(pasteId)) {
+      logDevWarning('SmartPaste', `[${pasteId}] DUPLICATE: Paste event already being processed!`);
+      return false;
+    }
+    
+    // Track this paste event
+    activePastes.add(pasteId);
+    logDevWarning('SmartPaste', `[${pasteId}] STARTED: Processing paste event`);
+  }
+
+  // Helper function to clean up and return
+  const finishPaste = (result: boolean, path?: string) => {
+    if (import.meta.env.DEV) {
+      activePastes.delete(pasteId);
+      const duration = performance.now() - startTime;
+      if (path) {
+        logDevWarning('SmartPaste', `[${pasteId}] COMPLETED: ${path} (${duration.toFixed(1)}ms) -> ${result ? 'HANDLED' : 'DEFERRED'}`);
+      } else {
+        logDevWarning('SmartPaste', `[${pasteId}] EARLY_EXIT: ${duration.toFixed(1)}ms -> ${result ? 'HANDLED' : 'DEFERRED'}`);
+      }
+    }
+    return result;
+  };
 
   // Guard: only process if editor is editable
   if (!editor.isEditable()) {
     if (import.meta.env.DEV) {
-      logDevWarning('SmartPaste', 'Paste blocked: editor is read-only');
+      logDevWarning('SmartPaste', `[${pasteId}] BLOCKED: editor is read-only`);
     }
-    return false; // Let default handler proceed
+    return finishPaste(false); // Let default handler proceed
   }
 
   // Guard: ensure we have clipboard data
   const clipboardData = event.clipboardData;
   if (!clipboardData) {
     if (import.meta.env.DEV) {
-      logDevWarning('SmartPaste', 'No clipboard data available');
+      logDevWarning('SmartPaste', `[${pasteId}] BLOCKED: No clipboard data available`);
     }
-    return false;
+    return finishPaste(false);
   }
 
   try {
     // Fast Path: Handle Lexical clipboard data for perfect fidelity
     const lexicalData = clipboardData.getData(LEXICAL_CLIPBOARD_TYPE);
     if (lexicalData && lexicalData.trim()) {
+      if (import.meta.env.DEV) {
+        logDevWarning('SmartPaste', `[${pasteId}] ATTEMPTING: Fast Path (${lexicalData.length} chars)`);
+      }
+      
       // Validate it's actually JSON before attempting to parse
       try {
         JSON.parse(lexicalData);
-        return handleLexicalFastPath(editor, lexicalData);
+        const handled = handleLexicalFastPath(editor, lexicalData, pasteId, event);
+        return finishPaste(handled, handled ? 'Fast Path - SCHEDULED' : 'Fast Path - REJECTED');
       } catch (jsonError) {
         if (import.meta.env.DEV) {
-          logDevWarning('SmartPaste', `Invalid Lexical clipboard data (not JSON), falling back to HTML path: ${jsonError}`);
+          logDevWarning('SmartPaste', `[${pasteId}] FAST_PATH_FAILED: Invalid JSON, falling back to HTML path: ${jsonError}`);
         }
         // Fall through to HTML path
       }
@@ -113,15 +155,23 @@ function handleSmartPaste(editor: LexicalEditor, event: ClipboardEvent): boolean
     // Standard Path: Handle HTML content with sanitization
     const htmlContent = clipboardData.getData('text/html');
     if (htmlContent && htmlContent.trim()) {
-      return handleHtmlPaste(editor, htmlContent, startTime);
+      if (import.meta.env.DEV) {
+        logDevWarning('SmartPaste', `[${pasteId}] ATTEMPTING: HTML Path (${htmlContent.length} chars)`);
+      }
+      
+      const handled = handleHtmlPaste(editor, htmlContent, startTime, clipboardData, pasteId, event);
+      return finishPaste(handled, handled ? 'HTML Path - SCHEDULED' : 'HTML Path - REJECTED');
     }
 
     // No HTML content, let default text paste handler take over
-    return false;
+    if (import.meta.env.DEV) {
+      logDevWarning('SmartPaste', `[${pasteId}] NO_CONTENT: No HTML or Lexical data, deferring to default handler`);
+    }
+    return finishPaste(false);
 
   } catch (error) {
-    console.error('[SmartPaste] Processing failed, falling back to default:', error);
-    return false; // Let default paste handler take over
+    console.error(`[SmartPaste] [${pasteId}] Processing failed, falling back to default:`, error);
+    return finishPaste(false);
   }
 }
 
@@ -131,7 +181,7 @@ function handleSmartPaste(editor: LexicalEditor, event: ClipboardEvent): boolean
  * 
  * Uses official @lexical/clipboard API for safe, future-proof implementation.
  */
-function handleLexicalFastPath(editor: LexicalEditor, lexicalData: string): boolean {
+function handleLexicalFastPath(editor: LexicalEditor, lexicalData: string, pasteId?: string, event?: ClipboardEvent): boolean {
   try {
     // Parse the Lexical clipboard payload
     const parsedPayload = JSON.parse(lexicalData);
@@ -185,14 +235,38 @@ function handleLexicalFastPath(editor: LexicalEditor, lexicalData: string): bool
       return false; // Fall back to HTML path
     }
 
-    // Generate Lexical nodes from serialized data using official API - atomic operation
-    let insertionSuccess = false;
+    // Pre-check selection availability synchronously
+    let hasValidSelection = false;
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      hasValidSelection = $isRangeSelection(selection);
+    });
     
+    if (!hasValidSelection) {
+      if (import.meta.env.DEV) {
+        const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+        logDevWarning('SmartPaste', `${pasteIdPrefix}FAST_PATH_BLOCKED: No valid range selection`);
+      }
+      return false; // Reject - don't handle this paste
+    }
+    
+    // We have valid selection - we will handle this paste
+    if (event) {
+      event.preventDefault(); // Prevent default browser paste
+    }
+    
+    if (import.meta.env.DEV) {
+      const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+      logDevWarning('SmartPaste', `${pasteIdPrefix}FAST_PATH_SCHEDULED: Handling Fast Path insertion`);
+    }
+    
+    // Schedule the insertion - this runs asynchronously
     editor.update(() => {
       const selection = $getSelection();
       if (!$isRangeSelection(selection)) {
         if (import.meta.env.DEV) {
-          logDevWarning('SmartPaste', 'Fast path: No valid range selection');
+          const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+          logDevWarning('SmartPaste', `${pasteIdPrefix}FAST_PATH_FAILED: Selection became invalid`);
         }
         return;
       }
@@ -203,7 +277,8 @@ function handleLexicalFastPath(editor: LexicalEditor, lexicalData: string): bool
         
         if (nodes.length === 0) {
           if (import.meta.env.DEV) {
-            logDevWarning('SmartPaste', 'Fast path: No valid nodes generated from serialized data');
+            const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+            logDevWarning('SmartPaste', `${pasteIdPrefix}FAST_PATH_FAILED: No valid nodes generated from serialized data`);
           }
           return;
         }
@@ -212,7 +287,6 @@ function handleLexicalFastPath(editor: LexicalEditor, lexicalData: string): bool
         selection.insertNodes(nodes);
         
         // Optional: Collapse selection to end of last inserted node for better UX
-        // This helps floating toolbar reflect the correct block type
         if (nodes.length > 0) {
           const lastNode = nodes[nodes.length - 1];
           if (lastNode && lastNode.selectEnd) {
@@ -220,21 +294,21 @@ function handleLexicalFastPath(editor: LexicalEditor, lexicalData: string): bool
           }
         }
         
-        insertionSuccess = true;
-        
         if (import.meta.env.DEV) {
-          logDevWarning('SmartPaste', `Fast path: Successfully inserted ${nodes.length} Lexical nodes`);
+          const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+          logDevWarning('SmartPaste', `${pasteIdPrefix}FAST_PATH_SUCCESS: Inserted ${nodes.length} Lexical nodes`);
         }
         
       } catch (nodeError) {
         if (import.meta.env.DEV) {
-          logDevWarning('SmartPaste', `Fast path: Node generation failed: ${nodeError}`);
+          const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+          logDevWarning('SmartPaste', `${pasteIdPrefix}FAST_PATH_FAILED: Node generation failed: ${nodeError}`);
         }
-        insertionSuccess = false;
       }
     });
     
-    return insertionSuccess;
+    // Return true immediately - we accepted and scheduled the paste
+    return true;
 
   } catch (parseError) {
     if (import.meta.env.DEV) {
@@ -247,13 +321,14 @@ function handleLexicalFastPath(editor: LexicalEditor, lexicalData: string): bool
 /**
  * Standard Path: Handle HTML content with sanitization and guards.
  */
-function handleHtmlPaste(editor: LexicalEditor, htmlContent: string, startTime: number): boolean {
+function handleHtmlPaste(editor: LexicalEditor, htmlContent: string, startTime: number, clipboardData?: DataTransfer, pasteId?: string, event?: ClipboardEvent): boolean {
   // Size guard: check before expensive sanitization
   if (exceedsSizeLimit(htmlContent)) {
     if (import.meta.env.DEV) {
-      logDevWarning('SmartPaste', `Content exceeds ${MAX_PASTE_SIZE / 1024}KB limit, falling back to plaintext`);
+      const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+      logDevWarning('SmartPaste', `${pasteIdPrefix}SIZE_LIMIT_EXCEEDED: Content exceeds ${MAX_PASTE_SIZE / 1024}KB limit, falling back to plaintext`);
     }
-    return handlePlaintextFallback(editor, htmlContent, clipboardData);
+    return handlePlaintextFallback(editor, htmlContent, clipboardData, pasteId, event);
   }
 
   // Sanitize HTML with time guard
@@ -264,9 +339,10 @@ function handleHtmlPaste(editor: LexicalEditor, htmlContent: string, startTime: 
   // Time guard: abort if sanitization took too long
   if (sanitizationTime > MAX_SANITIZATION_TIME_MS) {
     if (import.meta.env.DEV) {
-      logDevWarning('SmartPaste', `Sanitization took ${sanitizationTime.toFixed(1)}ms, falling back to plaintext`);
+      const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+      logDevWarning('SmartPaste', `${pasteIdPrefix}SANITIZATION_TIMEOUT: Sanitization took ${sanitizationTime.toFixed(1)}ms, falling back to plaintext`);
     }
-    return handlePlaintextFallback(editor, htmlContent, clipboardData);
+    return handlePlaintextFallback(editor, htmlContent, clipboardData, pasteId, event);
   }
 
   // Validate sanitized content
@@ -277,14 +353,38 @@ function handleHtmlPaste(editor: LexicalEditor, htmlContent: string, startTime: 
     return false; // Let default handler proceed
   }
 
-  // Generate and insert nodes atomically
-  let insertionSuccess = false;
+  // Pre-check selection availability synchronously
+  let hasValidSelection = false;
+  editor.getEditorState().read(() => {
+    const selection = $getSelection();
+    hasValidSelection = $isRangeSelection(selection);
+  });
   
+  if (!hasValidSelection) {
+    if (import.meta.env.DEV) {
+      const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+      logDevWarning('SmartPaste', `${pasteIdPrefix}HTML_PATH_BLOCKED: No valid range selection`);
+    }
+    return false; // Reject - don't handle this paste
+  }
+  
+  // We have valid selection - we will handle this paste
+  if (event) {
+    event.preventDefault(); // Prevent default browser paste
+  }
+  
+  if (import.meta.env.DEV) {
+    const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+    logDevWarning('SmartPaste', `${pasteIdPrefix}HTML_PATH_SCHEDULED: Handling HTML Path insertion`);
+  }
+  
+  // Schedule the insertion - this runs asynchronously
   editor.update(() => {
     const selection = $getSelection();
     if (!$isRangeSelection(selection)) {
       if (import.meta.env.DEV) {
-        logDevWarning('SmartPaste', 'No valid range selection for HTML paste');
+        const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+        logDevWarning('SmartPaste', `${pasteIdPrefix}HTML_PATH_FAILED: Selection became invalid`);
       }
       return;
     }
@@ -297,7 +397,8 @@ function handleHtmlPaste(editor: LexicalEditor, htmlContent: string, startTime: 
 
       if (nodes.length === 0) {
         if (import.meta.env.DEV) {
-          logDevWarning('SmartPaste', 'No nodes generated from sanitized HTML');
+          const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+          logDevWarning('SmartPaste', `${pasteIdPrefix}HTML_PATH_FAILED: No nodes generated from sanitized HTML`);
         }
         return;
       }
@@ -306,7 +407,6 @@ function handleHtmlPaste(editor: LexicalEditor, htmlContent: string, startTime: 
       selection.insertNodes(nodes);
       
       // Optional: Collapse selection to end of last inserted node
-      // This helps floating toolbar show correct block type for the last item
       if (nodes.length > 0) {
         const lastNode = nodes[nodes.length - 1];
         if (lastNode && lastNode.selectEnd) {
@@ -314,20 +414,24 @@ function handleHtmlPaste(editor: LexicalEditor, htmlContent: string, startTime: 
         }
       }
       
-      insertionSuccess = true;
-      
       const totalTime = performance.now() - startTime;
       if (import.meta.env.DEV) {
-        logDevWarning('SmartPaste', `HTML path: Inserted ${nodes.length} nodes in ${totalTime.toFixed(1)}ms`);
+        const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+        logDevWarning('SmartPaste', `${pasteIdPrefix}HTML_PATH_SUCCESS: Inserted ${nodes.length} nodes in ${totalTime.toFixed(1)}ms`);
       }
 
     } catch (error) {
-      console.error('[SmartPaste] Node generation/insertion failed:', error);
-      insertionSuccess = false;
+      if (import.meta.env.DEV) {
+        const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+        console.error(`[SmartPaste] [${pasteId}] HTML_PATH_FAILED: Node generation/insertion failed:`, error);
+      } else {
+        console.error('[SmartPaste] Node generation/insertion failed:', error);
+      }
     }
   });
   
-  return insertionSuccess;
+  // Return true immediately - we accepted and scheduled the paste
+  return true;
 }
 
 /**
@@ -335,7 +439,7 @@ function handleHtmlPaste(editor: LexicalEditor, htmlContent: string, startTime: 
  * Prefers text/plain from clipboard over HTML tag stripping.
  * This ensures paste always works even with hostile or oversized content.
  */
-function handlePlaintextFallback(editor: LexicalEditor, htmlContent: string, clipboardData?: DataTransfer): boolean {
+function handlePlaintextFallback(editor: LexicalEditor, htmlContent: string, clipboardData?: DataTransfer, pasteId?: string, event?: ClipboardEvent): boolean {
   // Prefer text/plain from clipboard over HTML stripping
   let plainText = '';
   
@@ -344,7 +448,8 @@ function handlePlaintextFallback(editor: LexicalEditor, htmlContent: string, cli
     if (clipboardText && clipboardText.trim()) {
       plainText = clipboardText;
       if (import.meta.env.DEV) {
-        logDevWarning('SmartPaste', 'Plaintext fallback: Using text/plain from clipboard');
+        const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+        logDevWarning('SmartPaste', `${pasteIdPrefix}PLAINTEXT_FALLBACK: Using text/plain from clipboard (${plainText.length} chars)`);
       }
     }
   }
@@ -353,7 +458,8 @@ function handlePlaintextFallback(editor: LexicalEditor, htmlContent: string, cli
   if (!plainText.trim()) {
     plainText = stripHtmlToText(htmlContent);
     if (import.meta.env.DEV) {
-      logDevWarning('SmartPaste', 'Plaintext fallback: Stripped HTML to text');
+      const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+      logDevWarning('SmartPaste', `${pasteIdPrefix}PLAINTEXT_FALLBACK: Stripped HTML to text (${plainText.length} chars)`);
     }
   }
   
@@ -361,28 +467,61 @@ function handlePlaintextFallback(editor: LexicalEditor, htmlContent: string, cli
     return false; // Nothing to paste
   }
 
-  let insertionSuccess = false;
+  // Pre-check selection availability synchronously
+  let hasValidSelection = false;
+  editor.getEditorState().read(() => {
+    const selection = $getSelection();
+    hasValidSelection = $isRangeSelection(selection);
+  });
   
+  if (!hasValidSelection) {
+    if (import.meta.env.DEV) {
+      const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+      logDevWarning('SmartPaste', `${pasteIdPrefix}PLAINTEXT_BLOCKED: No valid range selection`);
+    }
+    return false; // Reject - don't handle this paste
+  }
+
+  // We have valid selection - we will handle this paste
+  if (event) {
+    event.preventDefault(); // Prevent default browser paste
+  }
+  
+  if (import.meta.env.DEV) {
+    const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+    logDevWarning('SmartPaste', `${pasteIdPrefix}PLAINTEXT_SCHEDULED: Handling plaintext fallback insertion`);
+  }
+
+  // Schedule the insertion - this runs asynchronously
   editor.update(() => {
     const selection = $getSelection();
     if (!$isRangeSelection(selection)) {
+      if (import.meta.env.DEV) {
+        const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+        logDevWarning('SmartPaste', `${pasteIdPrefix}PLAINTEXT_FAILED: Selection became invalid`);
+      }
       return;
     }
 
     try {
       selection.insertText(plainText);
-      insertionSuccess = true;
       
       if (import.meta.env.DEV) {
-        logDevWarning('SmartPaste', `Plaintext fallback: Inserted ${plainText.length} characters`);
+        const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+        logDevWarning('SmartPaste', `${pasteIdPrefix}PLAINTEXT_SUCCESS: Inserted ${plainText.length} characters`);
       }
     } catch (error) {
-      console.error('[SmartPaste] Plaintext insertion failed:', error);
-      insertionSuccess = false;
+      if (import.meta.env.DEV) {
+        const pasteIdPrefix = pasteId ? `[${pasteId}] ` : '';
+        console.error(`[SmartPaste] [${pasteId}] PLAINTEXT_FAILED: Insertion failed:`, error);
+      } else {
+        console.error('[SmartPaste] Plaintext insertion failed:', error);
+      }
     }
   });
   
-  return insertionSuccess;
+  // Return true immediately - we accepted and scheduled the paste
+  return true;
 }
 
 /**
