@@ -64,8 +64,13 @@ export default function FloatingToolbar() {
   
   // Handle block type changes with unified command usage
   const handleBlockTypeChange = (type: BlockType) => {
-    // Check if editor is editable
-    if (!editor.isEditable()) return
+    // Guard: Check if editor is editable
+    if (!editor.isEditable()) {
+      if (import.meta.env.DEV) {
+        console.warn('[FloatingToolbar] Block type change blocked: editor is read-only');
+      }
+      return;
+    }
     
     // Use formatHeading for all heading and paragraph changes
     if (type === 'paragraph' || ['h1', 'h2', 'h3'].includes(type)) {
@@ -110,8 +115,8 @@ export default function FloatingToolbar() {
     editor.getEditorState().read(() => {
       const selection = $getSelection()
       
-      // Show toolbar only for non-collapsed range selections
-      if ($isRangeSelection(selection) && !selection.isCollapsed()) {
+      // Show toolbar only for non-collapsed range selections AND when editor is editable
+      if ($isRangeSelection(selection) && !selection.isCollapsed() && editor.isEditable()) {
         setIsVisible(true)
         
         // Update format states
@@ -121,16 +126,30 @@ export default function FloatingToolbar() {
         
         // Update block type
         const anchor = selection.anchor.getNode()
-        const element = anchor.getTopLevelElementOrThrow()
+        let element = null
         
-        if ($isCodeNode(element)) {
+        try {
+          element = anchor.getTopLevelElementOrThrow()
+        } catch (e) {
+          // If getTopLevelElementOrThrow fails, try to find the parent block
+          let node = anchor
+          while (node && !node.isTopLevelElement()) {
+            node = node.getParent()
+          }
+          element = node
+        }
+        
+        if (!element) {
+          setBlockType('paragraph')
+        } else if ($isCodeNode(element)) {
           setBlockType('code')
         } else if ($isHeadingNode(element)) {
           const tag = element.getTag()
           if (isAllowedHeadingTag(tag)) {
             setBlockType(tag)
           } else {
-            setBlockType('paragraph') // Fallback for h4-h6 (shouldn't happen due to policy)
+            // This shouldn't happen due to policy, but handle gracefully
+            setBlockType('h3') // Show as h3 since that's what it will be normalized to
           }
         } else if ($isQuoteNode(element)) {
           setBlockType('quote')

@@ -28,6 +28,8 @@ import Toolbar from './plugins/Toolbar'
 import FloatingToolbar from './plugins/FloatingToolbar'
 import { HeadingPolicyPlugin } from './plugins/HeadingPolicyPlugin'
 import { HeadingShortcutsPlugin } from './plugins/HeadingShortcutsPlugin'
+import { SmartPastePlugin } from './plugins/SmartPastePlugin'
+import { ListItemNormalizationPlugin } from './plugins/ListItemNormalizationPlugin'
 import { patchLexicalWarnings } from './lexicalPatches'
 
 // Note: Using editorConfig for node registration to ensure CustomHeadingNode is used
@@ -126,7 +128,9 @@ export default function Editor() {
       </div>
       <HistoryPlugin />
       <ListPlugin />
+      <SmartPastePlugin />
       <HeadingPolicyPlugin />
+      <ListItemNormalizationPlugin />
       <HeadingShortcutsPlugin />
       <FloatingToolbar />
       <ExampleContentPlugin />

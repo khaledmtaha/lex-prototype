@@ -46,27 +46,41 @@ export function HeadingPolicyPlugin(): null {
 
     // Node transform: the ONLY policy enforcement point
     const unregisterTransform = editor.registerNodeTransform(HeadingNode, (node) => {
+      // Guard: Only transform if editor is editable
+      if (!editor.isEditable()) {
+        return;
+      }
+      
       const tag = node.getTag();
       
-      // Idempotence: only transform disallowed headings
-      if (shouldNormalizeHeadingTag(tag)) {
-        // Create replacement node
-        const newNode = $createHeadingNode('h3');
-        
-        // CRITICAL: Preserve all content and attributes
-        newNode.setFormat(node.getFormat());
-        newNode.setIndent(node.getIndent());
-        newNode.setDirection(node.getDirection());
-        
-        // Move all children to preserve text and inline formatting
-        const children = node.getChildren();
-        children.forEach(child => newNode.append(child));
-        
-        // Replace in tree (atomic operation)
-        node.replace(newNode);
-        
-        logOncePerSession(`[HeadingPolicy] Normalized ${tag} heading to h3 to maintain consistency`);
+      // Idempotence: early return for h1-h3 (already allowed)
+      if (!shouldNormalizeHeadingTag(tag)) {
+        return;
       }
+      
+      // Transform disallowed headings (h4-h6) to h3
+      // Create replacement node
+      const newNode = $createHeadingNode('h3');
+      
+      // CRITICAL: Preserve all content and attributes
+      newNode.setFormat(node.getFormat());
+      newNode.setIndent(node.getIndent());
+      newNode.setDirection(node.getDirection());
+      
+      // Create stable snapshot of children before moving them
+      const children = [...node.getChildren()];
+      
+      // Move children to preserve text and inline formatting
+      children.forEach(child => {
+        // Detach from original node first, then append to new node
+        child.remove();
+        newNode.append(child);
+      });
+      
+      // Replace in tree (atomic operation)
+      node.replace(newNode);
+      
+      logOncePerSession(`[HeadingPolicy] Normalized ${tag} heading to h3 to maintain consistency`);
     });
 
     return () => {
