@@ -85,23 +85,28 @@ export function ListItemNormalizationPlugin(): null {
       // Find the first non-code, inline TextNode (skip empty formatting nodes)
       let textNode: TextNode | null = null;
       
-      function findFirstTextNode(nodeToSearch: any): TextNode | null {
+      function findFirstTextNodeWithPrefix(nodeToSearch: any): TextNode | null {
         const children = nodeToSearch.getChildren();
         
         for (const child of children) {
           if ($isTextNode(child)) {
-            // Found a text node - check if it has content or is just formatting
+            // Found a text node - check if it has a detectable prefix
             const text = child.getTextContent();
             if (text.trim().length > 0) {
-              return child;
+              // Check if this text node actually has a prefix we can strip
+              const normalizedText = text.replace(/\u00a0/g, ' '); // NBSP normalization
+              const hasPrefix = /^([-*•◦▪–—]|\d+[.)]|[a-zA-Z][.)])\s+/.test(normalizedText);
+              if (hasPrefix) {
+                return child; // Found a text node with a prefix!
+              }
             }
-            // Skip empty text nodes (just formatting)
+            // Continue searching - this text node doesn't have a prefix
             continue;
           }
           
           // Descend through inline element nodes (links, inline code, formatting)
           if ($isElementNode(child) && child.isInline()) {
-            const found = findFirstTextNode(child);
+            const found = findFirstTextNodeWithPrefix(child);
             if (found) {
               return found;
             }
@@ -109,7 +114,7 @@ export function ListItemNormalizationPlugin(): null {
           
           // Also descend through paragraph nodes
           if ($isParagraphNode(child)) {
-            const found = findFirstTextNode(child);
+            const found = findFirstTextNodeWithPrefix(child);
             if (found) {
               return found;
             }
@@ -119,7 +124,12 @@ export function ListItemNormalizationPlugin(): null {
         return null;
       }
       
-      textNode = findFirstTextNode(node);
+      textNode = findFirstTextNodeWithPrefix(node);
+      
+      // Debug logging in test environment
+      if (import.meta.env.NODE_ENV === 'test') {
+        console.log(`[DEBUG] ListItem transform - found textNode:`, textNode ? textNode.getTextContent() : 'null');
+      }
       
       // Only process if we found a text node
       if (!textNode) {
