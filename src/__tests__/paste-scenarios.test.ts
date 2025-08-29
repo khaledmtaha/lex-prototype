@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HeadingNode } from '@lexical/rich-text';
+import { HeadingNode, QuoteNode } from '@lexical/rich-text';
+import { ListNode, ListItemNode } from '@lexical/list';
+import { CodeNode } from '@lexical/code';
 import { createEditor, $getRoot, LexicalEditor, $createTextNode, ParagraphNode, TextNode } from 'lexical';
 
 describe('Paste Scenarios - Content Preservation', () => {
@@ -8,7 +10,16 @@ describe('Paste Scenarios - Content Preservation', () => {
   beforeEach(() => {
     editor = createEditor({
       namespace: 'paste-test',
-      nodes: [HeadingNode, ParagraphNode, TextNode],
+      nodes: [
+        // All node types that $generateNodesFromDOM might create
+        HeadingNode,
+        ParagraphNode, 
+        TextNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode
+      ],
       onError: console.error
     });
   });

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Paste Test Content</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 40px auto; 
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin: 20px 0;
+            background: #f9f9f9;
+        }
+        h1 { color: #2563eb; }
+        h2 { color: #7c3aed; }
+        h3 { color: #059669; }
+        h4 { color: #dc2626; }
+        h5 { color: #ea580c; }
+        h6 { color: #9333ea; }
+    </style>
+</head>
+<body>
+    <h1>Smart Paste Test Content</h1>
+    <p><strong>Instructions:</strong> Copy sections below and paste into the Lexical editor to test Smart Paste sanitization and normalization.</p>
+
+    <div class="test-section">
+        <h2>Test 1: Allowed Headings (Should Preserve)</h2>
+        <h1>This H1 should remain H1</h1>
+        <h2>This H2 should remain H2</h2>
+        <h3>This H3 should remain H3</h3>
+        <p>Regular paragraph with <strong>bold</strong>, <em>italic</em>, and <code>inline code</code>.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Disallowed Headings (Should Normalize to H3)</h2>
+        <h4>This H4 should become H3</h4>
+        <h5>This H5 should become H3</h5>
+        <h6>This H6 should become H3</h6>
+        <p>These headings should all be normalized to H3 by the transform.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Mixed Content with Formatting</h2>
+        <h1>Main Title (H1)</h1>
+        <p>Introduction paragraph with formatting.</p>
+        <h2>Subtitle (H2)</h2>
+        <ul>
+            <li>First bullet point</li>
+            <li>Second point with <strong>bold text</strong></li>
+            <li>Third point with <em>italic text</em></li>
+        </ul>
+        <h4>This H4 will become H3</h4>
+        <blockquote>This is a quote block that should be preserved.</blockquote>
+        <h5>This H5 will also become H3</h5>
+        <p>Final paragraph.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: Security - Malicious Content (Should Be Sanitized)</h2>
+        <h3>Clean Heading</h3>
+        <p>This paragraph has an <a href="javascript:alert('XSS')">javascript: link</a> that should be blocked.</p>
+        <p>This has a <a href="data:text/html,<script>alert('XSS')</script>">data: URI link</a> that should be blocked.</p>
+        <p>This has a <a href="vbscript:msgbox('XSS')">vbscript: link</a> that should be blocked.</p>
+        <p style="color: red; background: yellow;" class="malicious" id="bad">This paragraph has style/class/id attributes that should be removed.</p>
+        <div onclick="alert('Clicked!')" onmouseover="alert('Hover!')" data-evil="payload">This div has event handlers and data attributes that should be removed</div>
+        <svg><script>alert('SVG XSS')</script></svg>
+        <math><annotation-xml encoding="text/html"><script>alert('MathML XSS')</script></annotation-xml></math>
+        <script>alert('This script should be completely removed');</script>
+        <iframe src="javascript:alert('Iframe XSS')"></iframe>
+        <object data="javascript:alert('Object XSS')"></object>
+        <embed src="javascript:alert('Embed XSS')">
+        <form><input type="submit" value="Click me" onclick="alert('Form XSS')"></form>
+        <p>Safe content after malicious elements.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 5: Links and Safe Attributes</h2>
+        <p>This paragraph has a <a href="https://example.com">safe HTTPS link</a>.</p>
+        <p>This has a <a href="mailto:test@example.com">safe mailto link</a>.</p>
+        <p>Links should get rel="noopener noreferrer ugc" and target="_blank" attributes.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 6: Complex Structure</h2>
+        <h1>Document Title</h1>
+        <p>Introduction with <strong>bold</strong> and <em>italic</em> text.</p>
+        
+        <h2>Section 1</h2>
+        <p>Content for section 1.</p>
+        <ul>
+            <li>Nested list item</li>
+            <li>Another item</li>
+        </ul>
+        
+        <h4>Subsection (will become H3)</h4>
+        <p>This subsection heading should be normalized.</p>
+        
+        <blockquote>
+            This is a quote with <code>inline code</code> and <strong>formatting</strong>.
+        </blockquote>
+        
+        <h5>Another subsection (will become H3)</h5>
+        <ol>
+            <li>Numbered list item 1</li>
+            <li>Numbered list item 2</li>
+        </ol>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 7: Double Bullet Prevention</h2>
+        <h3>Common Double Bullet Issues</h3>
+        <p>Copy this content that has literal bullet characters:</p>
+        <div style="background: #f0f0f0; padding: 10px; margin: 10px 0;">
+            <p>- First item with dash prefix</p>
+            <p>* Second item with asterisk prefix</p>
+            <p>• Third item with bullet symbol</p>
+            <p>1. Numbered item with period</p>
+            <p>2) Numbered item with parenthesis</p>
+            <p>a. Letter item</p>
+        </div>
+        <p><strong>Expected:</strong> When pasted and converted to lists, each item should show only one bullet/number, not double.</p>
+        
+        <h3>NBSP Test</h3>
+        <p>Copy this content with non-breaking spaces (NBSP U+00A0) after prefixes:</p>
+        <div style="background: #f0f0f0; padding: 10px; margin: 10px 0;">
+            <p>-&nbsp;NBSP after dash</p>
+            <p>•&nbsp;NBSP after bullet</p>
+            <p>1.&nbsp;NBSP after number</p>
+        </div>
+        <p><strong>Expected:</strong> NBSP should be normalized to regular spaces before prefix stripping.</p>
+        
+        <h3>Code Protection Test</h3>
+        <p>Copy this content with code that contains dash/asterisk characters:</p>
+        <div style="background: #f0f0f0; padding: 10px; margin: 10px 0;">
+            <ul>
+                <li>Command: <code>git add -A</code> (dash should remain)</li>
+                <li>Pointer: <code>*ptr = value</code> (asterisk should remain)</li>
+                <li>Markdown: <code>- [ ] Todo item</code> (prefixes should remain in code)</li>
+            </ul>
+        </div>
+        <p><strong>Expected:</strong> Code content should not have prefixes stripped - dashes and asterisks should remain intact.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 8: Size/Time Guard Testing</h2>
+        <h3>Small Content (Should Process Normally)</h3>
+        <p>This is small content that should be processed normally through HTML sanitization.</p>
+        <h4>This H4 should become H3</h4>
+        
+        <h3>Large Content Test Instructions</h3>
+        <p><strong>Manual Test:</strong> Create a very large HTML document (>500KB) and paste it to test size guard fallback.</p>
+        <p><strong>Expected:</strong> Content should fall back to plaintext insertion.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 8: Single-Undo Behavior</h2>
+        <h4>Test Heading (will become H3)</h4>
+        <p>Paste this content, then press <strong>Ctrl+Z (Cmd+Z on Mac)</strong> once.</p>
+        <p><strong>Expected:</strong> The entire paste operation should be undone with a single undo command.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 9: Performance Stress Test</h2>
+        <div style="display: none;" id="large-content">
+            <!-- This will be filled with generated content -->
+        </div>
+        <button onclick="generateLargeContent()">Generate Large Content for Copy</button>
+        <p>Click the button above to generate large content, then copy and paste it to test performance.</p>
+    </div>
+
+    <script>
+        function generateLargeContent() {
+            let content = '<div>';
+            for (let i = 0; i < 1000; i++) {
+                content += `<h${4 + (i % 3)}>Heading ${i} - This should become H3</h${4 + (i % 3)}>`;
+                content += `<p>Paragraph ${i} with <strong>bold</strong> and <em>italic</em> text. `;
+                content += `<a href="https://example.com/${i}">Link ${i}</a> should get security attributes.</p>`;
+                if (i % 10 === 0) {
+                    content += `<ul><li>List item ${i}</li><li>Another item with <code>code</code></li></ul>`;
+                }
+            }
+            content += '</div>';
+            
+            const container = document.getElementById('large-content');
+            container.innerHTML = content;
+            container.style.display = 'block';
+            
+            // Auto-select the content for easy copying
+            const range = document.createRange();
+            range.selectNode(container);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            
+            alert('Large content generated and selected. You can now copy (Ctrl+C) and paste into the editor.');
+        }
+    </script>
+
+    <hr>
+    <p><small><strong>🧪 End-to-End Testing Checklist:</strong></small></p>
+    <ol>
+        <li><strong>Security Testing:</strong>
+            <ul>
+                <li>✅ Copy Test 4 (malicious content) and paste into editor</li>
+                <li>✅ Verify no javascript: alerts appear</li>
+                <li>✅ Verify no scripts execute</li>
+                <li>✅ Check dev console for sanitization logs</li>
+            </ul>
+        </li>
+        <li><strong>Heading Normalization:</strong>
+            <ul>
+                <li>✅ Copy Tests 1-3 and verify H4-H6 become H3</li>
+                <li>✅ Verify content and formatting are preserved</li>
+                <li>✅ Check that H1-H3 remain unchanged</li>
+            </ul>
+        </li>
+        <li><strong>Link Security:</strong>
+            <ul>
+                <li>✅ Copy Test 5 and inspect links in browser dev tools</li>
+                <li>✅ Verify all links have rel="noopener noreferrer ugc"</li>
+                <li>✅ Verify all links have target="_blank"</li>
+            </ul>
+        </li>
+        <li><strong>Performance & Guards:</strong>
+            <ul>
+                <li>✅ Test large content generation (Test 9)</li>
+                <li>✅ Verify size guard activates for large content</li>
+                <li>✅ Check performance logs in dev console</li>
+            </ul>
+        </li>
+        <li><strong>Undo Behavior:</strong>
+            <ul>
+                <li>✅ Paste any test content</li>
+                <li>✅ Press Ctrl+Z/Cmd+Z once</li>
+                <li>✅ Verify entire paste is undone atomically</li>
+            </ul>
+        </li>
+        <li><strong>Console Health:</strong>
+            <ul>
+                <li>✅ Open browser dev console (F12)</li>
+                <li>✅ Verify no errors during paste operations</li>
+                <li>✅ Look for Smart Paste debug logs</li>
+            </ul>
+        </li>
+    </ol>
+</body>
+</html>
